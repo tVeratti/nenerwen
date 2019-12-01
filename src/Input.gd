@@ -1,8 +1,12 @@
 extends Node
 
 const ACTION_MAP = 'action'
-const HOLD_TIMER = 300
-const CHAIN_TIMER = 300
+const HOLD_TIMER:float = 300.0
+const CHAIN_TIMER:float = 300.0
+
+signal press_start()
+signal press_end(command)
+signal hold_start()
 
 enum TYPES { HOLD, TAP }
 
@@ -13,6 +17,15 @@ var _pressing = false
 var _holding = false
 
 var _chain = []
+
+onready var _end_timer:Timer = $ChainTimer
+onready var _audio:AudioStreamPlayer = $AudioStreamPlayer
+
+func _ready():
+    _end_timer.connect("timeout", self, "_on_end_timeout")
+    _end_timer.one_shot = true
+    add_child(_end_timer)
+
 
 func _input(event):
     if event.is_action_pressed(ACTION_MAP):
@@ -31,24 +44,17 @@ func _start_press():
     _pressing = true
     _press_start_time = OS.get_ticks_msec()
 
-    # Elapsed time from last action released.
-    var elapsed_time = _press_end_time - _press_start_time
-
-    # When this press completes, it should either be chained with the
-    # previous command, or it should start a new chain.
-    _press_chain = elapsed_time <= CHAIN_TIMER
-
-    print('START')
+    _play_tap()
+    emit_signal("press_start")
     
 
 func _update_press():
     var now = OS.get_ticks_msec()
     var elapsed_time = now - _press_start_time
-    print(elapsed_time)
     if elapsed_time >= HOLD_TIMER:
-        # TODO: Signal that the character is HOLDING
         _holding = true
-        print('HOLDING')
+        _play_hold()
+        emit_signal("hold_start")
 
 
 func _end_press():
@@ -60,11 +66,29 @@ func _end_press():
     # whether the action is a hold or tap.
     var elapsed_time = _press_end_time - _press_start_time
     var input_type = TYPES.HOLD if elapsed_time >= HOLD_TIMER else TYPES.TAP
+    _chain.append(input_type)
+    
+    _end_timer.start(CHAIN_TIMER / 1000)
 
-    if _press_chain:
-        _chain.append(input_type)
-    else:
-        # TODO: Send the current chain for processing & reset
-        _chain = [input_type]
 
-    printt('END:', _chain)
+func _on_end_timeout():     
+    var now = OS.get_ticks_msec()
+    var elapsed_time = now - _press_start_time
+    if elapsed_time > CHAIN_TIMER:
+        var command = ""
+        for input in _chain:
+            command += String(input)
+        
+        emit_signal("press_end", command)
+        _chain = []
+    
+
+func _play_tap():
+    _audio.pitch_scale = 5
+    _audio.play()
+
+
+func _play_hold():
+    _audio.pitch_scale = 4
+    _audio.play()
+    
